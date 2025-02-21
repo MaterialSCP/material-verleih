@@ -24,8 +24,10 @@
         <input type="text" id="newMaterial" placeholder="Materialname">
         <input type="number" id="materialQuantity" placeholder="Menge" min="1" value="1">
         <button onclick="addMaterial()">Hinzufügen</button>
-        <h2>Material verwalten</h2>
-        <ul id="availableMaterials"></ul>
+        <h2>Material entfernen</h2>
+        <select id="removeMaterialSelect"></select>
+        <input type="number" id="removeMaterialQuantity" placeholder="Menge" min="1" value="1">
+        <button onclick="removeMaterial()">Entfernen</button>
     </div>
     <h2>Materialanfrage</h2>
     <select id="materialSelect"></select>
@@ -34,89 +36,127 @@
     <input type="date" id="loanDate">
     <input type="date" id="returnDate">
     <button onclick="requestItem()">Anfrage senden</button>
+    <h2>Verfügbare Materialien</h2>
+    <ul id="publicAvailableMaterials"></ul>
     <h2>Verliehenes Material</h2>
     <table id="loanedTable"></table>
-
     <script>
         let isAdmin = false;
-        let availableMaterials = JSON.parse(localStorage.getItem("availableMaterials")) || {};
-        let loanedItems = JSON.parse(localStorage.getItem("loanedItems")) || [];
-
+        let availableMaterials = JSON.parse(localStorage.getItem('availableMaterials') || '{}');
+        let loanedItems = JSON.parse(localStorage.getItem('loanedItems') || '[]');
+        
+        function saveData() {
+            localStorage.setItem('availableMaterials', JSON.stringify(availableMaterials));
+            localStorage.setItem('loanedItems', JSON.stringify(loanedItems));
+        }
+        
         function toggleLogin() {
             document.getElementById("adminLogin").classList.toggle("hidden");
         }
-
+        
         function handleLogin() {
             let password = document.getElementById("adminPassword").value;
             if (password === "SCP07!") {
                 isAdmin = true;
                 document.getElementById("adminPanel").classList.remove("hidden");
+                updateMaterialList();
+                updateLoanedList();
             } else {
                 alert("Falsches Passwort");
             }
         }
-
+        
         function addMaterial() {
-            let material = document.getElementById("newMaterial").value;
+            let material = document.getElementById("newMaterial").value.trim();
             let quantity = parseInt(document.getElementById("materialQuantity").value);
             if (!material || quantity < 1) return;
             availableMaterials[material] = (availableMaterials[material] || 0) + quantity;
-            localStorage.setItem("availableMaterials", JSON.stringify(availableMaterials));
+            saveData();
             updateMaterialList();
         }
-
-        function removeMaterial(material) {
-            if (availableMaterials[material] > 1) {
-                availableMaterials[material]--;
-            } else {
-                delete availableMaterials[material];
-            }
-            localStorage.setItem("availableMaterials", JSON.stringify(availableMaterials));
+        
+        function removeMaterial() {
+            let material = document.getElementById("removeMaterialSelect").value;
+            let quantity = parseInt(document.getElementById("removeMaterialQuantity").value);
+            if (!material || quantity < 1) return;
+            availableMaterials[material] -= quantity;
+            if (availableMaterials[material] <= 0) delete availableMaterials[material];
+            saveData();
             updateMaterialList();
         }
-
-        function updateMaterialList() {
-            let list = document.getElementById("availableMaterials");
-            list.innerHTML = "";
-            for (let mat in availableMaterials) {
-                let li = document.createElement("li");
-                li.innerHTML = `${mat} (${availableMaterials[mat]}) <button onclick='removeMaterial("${mat}")'>Löschen</button>`;
-                list.appendChild(li);
-            }
-            let select = document.getElementById("materialSelect");
-            select.innerHTML = "<option value=''>Material auswählen</option>";
-            for (let mat in availableMaterials) {
-                let option = document.createElement("option");
-                option.value = mat;
-                option.textContent = `${mat} (${availableMaterials[mat]})`;
-                select.appendChild(option);
-            }
-        }
-
+        
         function requestItem() {
             let material = document.getElementById("materialSelect").value;
             let quantity = parseInt(document.getElementById("borrowQuantity").value);
-            let borrower = document.getElementById("borrower").value;
+            let borrower = document.getElementById("borrower").value.trim();
             let loanDate = document.getElementById("loanDate").value;
             let returnDate = document.getElementById("returnDate").value;
-            
             if (!material || quantity < 1 || !borrower || !loanDate || !returnDate) return;
-            
-            if (availableMaterials[material] >= quantity) {
-                availableMaterials[material] -= quantity;
-                if (availableMaterials[material] === 0) {
-                    delete availableMaterials[material];
-                }
-                loanedItems.push({ material, quantity, borrower, loanDate, returnDate });
-                localStorage.setItem("availableMaterials", JSON.stringify(availableMaterials));
-                localStorage.setItem("loanedItems", JSON.stringify(loanedItems));
-                updateMaterialList();
-            } else {
+            if (availableMaterials[material] < quantity) {
                 alert("Nicht genügend Material verfügbar");
+                return;
+            }
+            availableMaterials[material] -= quantity;
+            loanedItems.push({ material, quantity, borrower, loanDate, returnDate });
+            saveData();
+            updateMaterialList();
+            updateLoanedList();
+        }
+        
+        function returnLoanedMaterial(index) {
+            if (!isAdmin) return;
+            let item = loanedItems.splice(index, 1)[0];
+            availableMaterials[item.material] = (availableMaterials[item.material] || 0) + item.quantity;
+            saveData();
+            updateMaterialList();
+            updateLoanedList();
+        }
+        
+        function updateLoanedList() {
+            let table = document.getElementById("loanedTable");
+            table.innerHTML = "<tr><th>Material</th><th>Menge</th><th>Entleiher</th><th>Ausleihe</th><th>Rückgabe</th>" + (isAdmin ? "<th>Aktion</th>" : "") + "</tr>";
+            loanedItems.forEach((item, index) => {
+                let row = table.insertRow();
+                row.innerHTML = `<td>${item.material}</td><td>${item.quantity}</td><td>${item.borrower}</td><td>${item.loanDate}</td><td>${item.returnDate}</td>`;
+                
+                // Nur Admins können die Rückgabe-Aktion sehen
+                if (isAdmin) {
+                    row.innerHTML += `<td><button onclick='returnLoanedMaterial(${index})'>Zurückgeben</button></td>`;
+                }
+            });
+        }
+        
+        function updateMaterialList() {
+            let materialSelect = document.getElementById("materialSelect");
+            let publicList = document.getElementById("publicAvailableMaterials");
+            let removeMaterialSelect = document.getElementById("removeMaterialSelect");
+            materialSelect.innerHTML = '<option value="" disabled selected>Wähle ein Material</option>';
+            publicList.innerHTML = '';
+            removeMaterialSelect.innerHTML = '';
+            
+            for (let material in availableMaterials) {
+                let option = document.createElement("option");
+                option.value = material;
+                option.textContent = `${material} (${availableMaterials[material]})`;
+                materialSelect.appendChild(option);
+                
+                let removeOption = document.createElement("option");
+                removeOption.value = material;
+                removeOption.textContent = material;
+                removeMaterialSelect.appendChild(removeOption);
+                
+                let listItem = document.createElement("li");
+                listItem.textContent = `${material}: ${availableMaterials[material]}`;
+                publicList.appendChild(listItem);
+            }
+            
+            if (Object.keys(availableMaterials).length === 0) {
+                publicList.innerHTML = "Keine Materialien verfügbar.";
             }
         }
-
+        
         updateMaterialList();
+        updateLoanedList();
     </script>
 </body>
 </html>
